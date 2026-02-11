@@ -1,0 +1,33 @@
+#!/bin/sh
+
+if [ $# -eq 0 ]; then
+    echo "$0: Error: Specify pipeline run name." >&2
+    echo "    Example usage:" >&2
+    echo "    $0 some-component-name-on-push-fblf4" >&2
+    exit 1
+fi
+
+response=$(oc ka get pods "$1" --archived -o json)
+i=0
+while ( $(printf "%s" "$response" | grep -e '^pods.metrics.k8s.io' | grep -q -e 'cannot get resource "pods" in API group "metrics.k8s.io"') || [ "$response" = "KubeArchive authentication required: unauthorized" ] ) && [ "$i" -lt 10 ]; do
+    if [ "$i" -gt 0 ]; then
+        echo "Got unauthorized, retrying (${i} of 10)" >&2
+    fi
+    response=$(oc ka get pods "$1" --archived -o json)
+    i=$((i+1))
+done
+
+for container in $(printf "%s" "$response" | jq -r ".items[].spec.containers[].name"); do
+    printf "%s\n" "$container" | tr "[[:lower:]]" "[[:upper:]]"
+    response=$(oc ka logs "$1" -c "$container")
+    i=0
+    while [ "$response" = "unauthorized" ] && [ "$i" -lt 10 ]; do
+        if [ "$i" -gt 0 ]; then
+            echo "Got unauthorized, retrying (${i} of 10)" >&2
+        fi
+        response=$(oc ka logs "$1" -c "$container")
+        i=$((i+1))
+    done
+    printf "%s\n" "$response" | sed -e "s/^/  /"
+    printf "\n\n"
+done

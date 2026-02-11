@@ -1,0 +1,22 @@
+#!/bin/sh
+
+if [ $# -eq 0 ]; then
+    echo "$0: Error: Specify pipeline run name." >&2
+    echo "    Example usage:" >&2
+    echo "    $0 some-component-name-on-push-fblf4" >&2
+    exit 1
+fi
+
+response=$(oc ka get pods -l tekton.dev/pipelineRun="$1" --archived -o json)
+i=0
+while [ "$response" = "KubeArchive authentication required: unauthorized" ] && [ "$i" -lt 10 ]; do
+    if [ "$i" -gt 0 ]; then
+        echo "Got unauthorized, retrying (${i} of 10)" >&2
+    fi
+    response=$(oc ka get pods -l tekton.dev/pipelineRun="$1" --archived -o json)
+    i=$((i+1))
+done
+
+for pod in $(printf "%s" "$response" | jq -r ".items |= sort_by(.metadata.creationTimestamp) | .items[].metadata.name"); do
+    kubectl-ka-pod-logs "$pod"
+done
